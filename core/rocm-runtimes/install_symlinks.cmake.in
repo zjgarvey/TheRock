@@ -1,0 +1,11 @@
+# Copyright Advanced Micro Devices, Inc.
+# SPDX-License-Identifier: MIT
+
+set(_library_dir "$ENV{DESTDIR}${CMAKE_INSTALL_PREFIX}/@HSA_LIBRARY_DESTINATION@")
+file(CREATE_LINK "@HSA_IMAGE_NAME@" "${_library_dir}/@HSA_SONAME@" SYMBOLIC)
+file(CREATE_LINK "@HSA_SONAME@" "${_library_dir}/libhsa-runtime64.so" SYMBOLIC)
+if("@INSTALL_AMDF_ALIASES@" STREQUAL "ON")
+  file(CREATE_LINK "@HSA_SONAME@" "${_library_dir}/libamdf.so.0" SYMBOLIC)
+  file(CREATE_LINK "libamdf.so.0" "${_library_dir}/libamdf.so" SYMBOLIC)
+  file(CREATE_LINK "@HSA_SONAME@" "${_library_dir}/libhsa_runtime64.so" SYMBOLIC)
+endif()

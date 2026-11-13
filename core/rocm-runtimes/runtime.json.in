@@ -1,0 +1,13 @@
+{
+  "schema_version": 1,
+  "hsa_version": "@HSA_VERSION@",
+  "hsa_soname": "@HSA_SONAME@",
+  "hsa_image": "@HSA_IMAGE_NAME@",
+  "amdf_static": "libamdf.a",
+  "amdf_shared": "libamdf.so",
+  "tests": {
+    "host_enabled": @ROCM_RUNTIMES_HOST_TESTS_ENABLED@,
+    "format_check_available": true,
+    "cts_available": false
+  }
+}
