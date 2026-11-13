@@ -1,0 +1,32 @@
+{
+  "rust_version": "1.98.0",
+  "rust_manifest_url": "https://static.rust-lang.org/dist/channel-rust-1.98.0.toml",
+  "rust_manifest_sha256": "3f7d139b73bbbd0004ef6e58b430831c68cdad2b1f64ee2eb35d54c09199489a",
+  "rust_components": [
+    {
+      "url": "https://static.rust-lang.org/dist/2026-08-20/rustc-1.98.0-x86_64-unknown-linux-gnu.tar.xz",
+      "sha256": "0e37cb339f447fc44d6d781073bacacebfdc5612f2600e4c7e84c266f5f3aced"
+    },
+    {
+      "url": "https://static.rust-lang.org/dist/2026-08-20/rust-std-1.98.0-x86_64-unknown-linux-gnu.tar.xz",
+      "sha256": "f5022e6c95a5ad23cca2513dc8281200f585fa188de6370aa37b128a43f876a3"
+    },
+    {
+      "url": "https://static.rust-lang.org/dist/2026-08-20/cargo-1.98.0-x86_64-unknown-linux-gnu.tar.xz",
+      "sha256": "2f512d170d3dd23e16ababcda32ee2e6d5172d861a7af1f504e0b1e270cafab9"
+    },
+    {
+      "url": "https://static.rust-lang.org/dist/2026-08-20/rustfmt-1.98.0-x86_64-unknown-linux-gnu.tar.xz",
+      "sha256": "8922a03e68265a74a8040590e28b173fb5d9d49655bb6eacfd880fbd3bef0dc3"
+    },
+    {
+      "url": "https://static.rust-lang.org/dist/2026-08-20/clippy-1.98.0-x86_64-unknown-linux-gnu.tar.xz",
+      "sha256": "646c6bd2450ea4c32a3c78ad7a3727294eea1f1519718a3f1487424021695ffa"
+    }
+  ],
+  "node": {
+    "version": "22.16.0",
+    "url": "https://nodejs.org/dist/v22.16.0/node-v22.16.0-linux-x64.tar.xz",
+    "sha256": "f4cb75bb036f0d0eddf6b79d9596df1aaab9ddccd6a20bf489be5abe9467e84e"
+  }
+}

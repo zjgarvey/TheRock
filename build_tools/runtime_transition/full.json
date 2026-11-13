@@ -1,0 +1,130 @@
+{
+  "schema_version": 1,
+  "cmake": {
+    "THEROCK_ENABLE_CORE_HIPTESTS": "ON",
+    "THEROCK_ENABLE_CORE_RUNTIME_TESTS": "ON"
+  },
+  "suites": [
+    {
+      "id": "build-integrity",
+      "component": "therock",
+      "kind": "ctest"
+    },
+    {
+      "id": "runtimes-host",
+      "component": "rocm-runtimes",
+      "kind": "ctest",
+      "path": "core/rocm-runtimes/build",
+      "label": "host"
+    },
+    {
+      "id": "runtimes-format",
+      "component": "rocm-runtimes",
+      "kind": "ctest",
+      "path": "core/rocm-runtimes/build",
+      "label": "^format$"
+    },
+    {
+      "id": "hip",
+      "component": "hip",
+      "kind": "component",
+      "script": "test_hiptests.py"
+    },
+    {
+      "id": "hsa-reference",
+      "component": "hsa",
+      "kind": "gtest",
+      "path": "dist/rocm/bin/rocrtst64"
+    },
+    {
+      "id": "rocblas",
+      "component": "rocblas",
+      "kind": "component"
+    },
+    {
+      "id": "rocsolver",
+      "component": "rocsolver",
+      "kind": "component"
+    },
+    {
+      "id": "rocrand",
+      "component": "rocrand",
+      "kind": "component"
+    },
+    {
+      "id": "hiprand",
+      "component": "hiprand",
+      "kind": "component"
+    },
+    {
+      "id": "rocthrust",
+      "component": "rocthrust",
+      "kind": "component"
+    },
+    {
+      "id": "rocprim",
+      "component": "rocprim",
+      "kind": "component"
+    },
+    {
+      "id": "rocwmma",
+      "component": "rocwmma",
+      "kind": "component"
+    },
+    {
+      "id": "hipcub",
+      "component": "hipcub",
+      "kind": "component"
+    },
+    {
+      "id": "miopen",
+      "component": "miopen",
+      "kind": "component"
+    },
+    {
+      "id": "rocsparse",
+      "component": "rocsparse",
+      "kind": "component"
+    },
+    {
+      "id": "rocalution",
+      "component": "rocalution",
+      "kind": "component"
+    },
+    {
+      "id": "hipsparse",
+      "component": "hipsparse",
+      "kind": "component"
+    },
+    {
+      "id": "hipsparselt",
+      "component": "hipsparselt",
+      "kind": "component"
+    },
+    {
+      "id": "hipblaslt",
+      "component": "hipblaslt",
+      "kind": "component"
+    },
+    {
+      "id": "hipblas",
+      "component": "hipblas",
+      "kind": "component"
+    },
+    {
+      "id": "hipdnn",
+      "component": "hipdnn",
+      "kind": "component"
+    },
+    {
+      "id": "rocroller",
+      "component": "rocroller",
+      "kind": "component"
+    },
+    {
+      "id": "hiptensor",
+      "component": "hiptensor",
+      "kind": "component"
+    }
+  ]
+}

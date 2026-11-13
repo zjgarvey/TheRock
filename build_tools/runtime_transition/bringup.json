@@ -1,0 +1,40 @@
+{
+  "schema_version": 1,
+  "cmake": {
+    "THEROCK_ENABLE_CORE_HIPTESTS": "ON",
+    "THEROCK_ENABLE_CORE_RUNTIME_TESTS": "ON"
+  },
+  "suites": [
+    {
+      "id": "build-integrity",
+      "component": "therock",
+      "kind": "ctest"
+    },
+    {
+      "id": "runtimes-host",
+      "component": "rocm-runtimes",
+      "kind": "ctest",
+      "path": "core/rocm-runtimes/build",
+      "label": "host"
+    },
+    {
+      "id": "runtimes-format",
+      "component": "rocm-runtimes",
+      "kind": "ctest",
+      "path": "core/rocm-runtimes/build",
+      "label": "^format$"
+    },
+    {
+      "id": "hip",
+      "component": "hip",
+      "kind": "component",
+      "script": "test_hiptests.py"
+    },
+    {
+      "id": "hsa-reference",
+      "component": "hsa",
+      "kind": "gtest",
+      "path": "dist/rocm/bin/rocrtst64"
+    }
+  ]
+}

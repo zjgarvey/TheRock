@@ -1,0 +1,14 @@
+# Keep source checkouts and build outputs out of the provisioning context.
+*
+!requirements.txt
+!dockerfiles
+dockerfiles/*
+!dockerfiles/install_pinned_patchelf.sh
+!dockerfiles/install_patchelf.sh
+!dockerfiles/build_manylinux_x86_64.Dockerfile
+!build_tools
+build_tools/*
+!build_tools/runtime_transition
+build_tools/runtime_transition/*
+!build_tools/runtime_transition/image
+!build_tools/runtime_transition/image/**
