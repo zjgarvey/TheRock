@@ -226,6 +226,39 @@ def _artifact_is_enabled_on_platform(artifact, platform: str) -> bool:
     return True
 
 
+def _enabled_artifact_names(
+    topology: BuildTopology,
+    selected_artifacts: Sequence[str] = (),
+    *,
+    platform: str | None = None,
+) -> set[str]:
+    """Resolve topology defaults, explicit selections, and required dependencies."""
+
+    selected = set(selected_artifacts)
+    unknown = selected - topology.artifacts.keys()
+    if unknown:
+        raise ValueError(f"Unknown selected artifacts: {', '.join(sorted(unknown))}")
+
+    pending = [
+        name
+        for name, artifact in topology.artifacts.items()
+        if artifact.default_enabled is not False or name in selected
+    ]
+    enabled: set[str] = set()
+    while pending:
+        name = pending.pop()
+        if name in enabled:
+            continue
+        artifact = topology.artifacts[name]
+        if platform is not None and not _artifact_is_enabled_on_platform(
+            artifact, platform
+        ):
+            continue
+        enabled.add(name)
+        pending.extend(artifact.artifact_deps)
+    return enabled
+
+
 def _required_families_for_artifact(
     artifact_name: str,
     artifact,
@@ -258,11 +291,13 @@ def _required_artifacts_for_stages(
     target_families: Sequence[str],
     *,
     platform: str,
+    selected_artifacts: Sequence[str] = (),
 ) -> list[RequiredArtifact]:
     """Return valid artifact/target requirements for the requested stages."""
 
     artifacts_by_group = topology.get_artifact_group_to_artifacts()
     concrete_targets = _expand_target_families(target_families)
+    enabled = _enabled_artifact_names(topology, selected_artifacts, platform=platform)
 
     required: list[RequiredArtifact] = []
     seen: set[RequiredArtifact] = set()
@@ -274,6 +309,8 @@ def _required_artifacts_for_stages(
 
         for group_name in stage.artifact_groups:
             for artifact_name in artifacts_by_group.get(group_name, []):
+                if artifact_name not in enabled:
+                    continue
                 artifact = topology.artifacts[artifact_name]
                 required_families = _required_families_for_artifact(
                     artifact_name,
@@ -307,6 +344,7 @@ def _stage_artifacts_available(
     available_filenames: set[str],
     *,
     platform: str,
+    selected_artifacts: Sequence[str] = (),
 ) -> bool:
     """True when every valid requirement for this stage is available."""
 
@@ -315,6 +353,7 @@ def _stage_artifacts_available(
         [stage_name],
         target_families,
         platform=platform,
+        selected_artifacts=selected_artifacts,
     )
 
     return all(
@@ -418,15 +457,27 @@ def _filter_available_artifacts(
     *,
     target_families_by_platform: Mapping[str, Sequence[str]],
     available_filenames_by_platform: Mapping[str, set[str]],
+    selected_artifacts: Sequence[str] = (),
 ) -> tuple[tuple[str, ...], tuple[str, ...]]:
     """Require each artifact on every platform where it is enabled."""
 
     available: list[str] = []
     unavailable: list[str] = []
+    enabled_by_platform = {
+        platform: _enabled_artifact_names(
+            topology, selected_artifacts, platform=platform
+        )
+        for platform in target_families_by_platform
+    }
 
     for artifact_name in artifact_names:
+        if not any(
+            artifact_name in enabled for enabled in enabled_by_platform.values()
+        ):
+            continue
         is_available = all(
-            _artifact_available_on_platform(
+            artifact_name not in enabled_by_platform[platform]
+            or _artifact_available_on_platform(
                 topology,
                 artifact_name,
                 target_families,
@@ -449,6 +500,7 @@ def plan_stage_reuse(
     changed_files: Sequence[str] | None,
     platform: str | None = None,
     topology: BuildTopology | None = None,
+    selected_artifacts: Sequence[str] = (),
 ) -> StageReusePlan:
     """Planning step: which stages are unaffected reuse candidates.
 
@@ -481,14 +533,21 @@ def plan_stage_reuse(
         topology=topology,
         platform=platform,
     )
+    # Keep platform applicability in the availability checks: a plan may be
+    # verified for several platforms, including ones other than this first one.
+    enabled = _enabled_artifact_names(topology, selected_artifacts)
     return StageReusePlan(
         candidate_stages=tuple(impact.copy_stages),
         rebuild_stages=tuple(impact.rebuild_stages),
         full_rebuild_required=impact.full_rebuild_required,
         reasons=tuple(impact.reasons),
         # Granular artifact-level analysis fields
-        impacted_artifacts=impact.impacted_artifacts,
-        reusable_artifacts=impact.reusable_artifacts,
+        impacted_artifacts=tuple(
+            name for name in impact.impacted_artifacts if name in enabled
+        ),
+        reusable_artifacts=tuple(
+            name for name in impact.reusable_artifacts if name in enabled
+        ),
         artifact_level_analysis=impact.artifact_level_analysis,
     )
 
@@ -503,6 +562,7 @@ def compute_auto_stage_reuse(
     baseline_selector: BaselineSelector | None = None,
     baseline_selector_factory: Callable[[str], BaselineSelector] | None = None,
     explicit_prebuilt_stages: Sequence[str] = (),
+    selected_artifacts: Sequence[str] = (),
 ) -> AutoStageReuse:
     """Compute auto stage-reuse decisions, verified against a baseline run.
 
@@ -516,6 +576,8 @@ def compute_auto_stage_reuse(
 
     Stages in ``explicit_prebuilt_stages`` are excluded from automatic analysis
     reporting since they will be satisfied by an explicit baseline_run_id input.
+    ``selected_artifacts`` adds canonical artifact names to the topology defaults;
+    their transitive dependencies are required even when default-disabled.
     """
     if mode is StageReuseMode.OFF:
         return _log_and_return(
@@ -561,6 +623,7 @@ def compute_auto_stage_reuse(
         changed_files=changed_files,
         platform=platforms[0],
         topology=topology,
+        selected_artifacts=selected_artifacts,
     )
     candidates = plan.candidate_stages
     rebuild = plan.rebuild_stages
@@ -632,6 +695,7 @@ def compute_auto_stage_reuse(
                     [stage_name],
                     platform_families,
                     platform=platform,
+                    selected_artifacts=selected_artifacts,
                 )
             )
             for stage_name in candidates
@@ -722,6 +786,7 @@ def compute_auto_stage_reuse(
                 platform_families,
                 available_filenames,
                 platform=platform,
+                selected_artifacts=selected_artifacts,
             ):
                 available_here.append(stage_name)
 
@@ -800,6 +865,7 @@ def compute_auto_stage_reuse(
             plan.reusable_artifacts,
             target_families_by_platform=target_families_by_platform,
             available_filenames_by_platform=available_filenames_by_platform,
+            selected_artifacts=selected_artifacts,
         )
         # Artifacts that were planned as reusable but not available must be rebuilt
         verified_reusable = available_artifacts

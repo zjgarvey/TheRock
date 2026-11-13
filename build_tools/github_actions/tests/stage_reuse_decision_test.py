@@ -6,6 +6,7 @@
 import os
 import sys
 import unittest
+from dataclasses import replace
 from pathlib import Path
 from unittest.mock import Mock, patch
 
@@ -36,10 +37,14 @@ class _FakeArtifact:
         *,
         platform=None,
         disable_platforms=(),
+        default_enabled=None,
+        artifact_deps=(),
     ):
         self.type = artifact_type
         self.platform = platform
         self.disable_platforms = list(disable_platforms)
+        self.default_enabled = default_enabled
+        self.artifact_deps = list(artifact_deps)
 
 
 class FakeTopology:
@@ -211,6 +216,7 @@ class ModeParsingTest(unittest.TestCase):
                 changed_files=["rocm-libraries/projects/rocBLAS/x.cpp"],
                 mode=StageReuseMode.OFF,
                 linux_amdgpu_families=["gfx94X-dcgpu"],
+                selected_artifacts=["rocm-runtimes"],
                 baseline_selector=baseline_selector,
             )
 
@@ -678,6 +684,167 @@ class ArtifactRequirementTest(unittest.TestCase):
         )
 
         self.assertEqual(requirements, [])
+
+
+class OptInArtifactTest(unittest.TestCase):
+    def setUp(self):
+        self.topology = srd.BuildTopology(
+            Path(__file__).resolve().parents[3] / "BUILD_TOPOLOGY.toml"
+        )
+        self.assertIs(self.topology.artifacts["rocm-runtimes"].default_enabled, False)
+        self.default_filenames = {
+            f"{name}_lib_generic.tar.zst"
+            for name in self.topology.artifacts
+            if name != "rocm-runtimes"
+        }
+
+    def test_default_baseline_and_explicit_runtime_selection(self):
+        for selected, runtime_present, reusable in (
+            ((), False, True),
+            (("rocm-runtimes",), False, False),
+            (("rocm-runtimes",), True, True),
+        ):
+            with self.subTest(selected=selected, runtime_present=runtime_present):
+                filenames = set(self.default_filenames)
+                if runtime_present:
+                    filenames.add("rocm-runtimes_lib_generic.tar.zst")
+                selector = Mock(return_value=_baseline("123", filenames))
+
+                result = compute_auto_stage_reuse(
+                    changed_files=["rocm-libraries/projects/rocblas/x.cpp"],
+                    mode=StageReuseMode.REUSE_STAGE,
+                    linux_amdgpu_families=["generic"],
+                    topology=self.topology,
+                    selected_artifacts=selected,
+                    baseline_selector=selector,
+                )
+
+                requirements = selector.call_args.args[0]["compiler-runtime"]
+                names = {requirement.name for requirement in requirements}
+                self.assertIn("core-runtime", names)
+                self.assertEqual("rocm-runtimes" in names, bool(selected))
+                self.assertEqual(
+                    "compiler-runtime" in result.available_stages, reusable
+                )
+                self.assertEqual(
+                    "compiler-runtime" in result.applied_reuse_stages, reusable
+                )
+
+    def test_transitive_dependencies_from_other_stages_are_required(self):
+        self.topology.artifacts["runtime-helper"] = replace(
+            self.topology.artifacts["rocm-runtimes"],
+            name="runtime-helper",
+            artifact_deps=["rocm-runtimes"],
+        )
+        self.topology.artifacts["blas"].artifact_deps.append("runtime-helper")
+
+        requirements = srd._required_artifacts_for_stages(
+            self.topology, ["compiler-runtime"], ["generic"], platform="linux"
+        )
+        names = {requirement.name for requirement in requirements}
+        self.assertTrue({"runtime-helper", "rocm-runtimes"} <= names)
+        self.assertFalse(
+            srd._stage_artifacts_available(
+                self.topology,
+                "compiler-runtime",
+                ["generic"],
+                self.default_filenames | {"runtime-helper_lib_generic.tar.zst"},
+                platform="linux",
+            )
+        )
+
+    def test_platform_disabled_consumer_does_not_enable_dependency(self):
+        self.topology.artifacts["runtime-consumer"] = replace(
+            self.topology.artifacts["base"],
+            name="runtime-consumer",
+            platform="windows",
+            artifact_deps=["rocm-runtimes"],
+        )
+        requirements = srd._required_artifacts_for_stages(
+            self.topology, ["compiler-runtime"], ["generic"], platform="linux"
+        )
+        names = {requirement.name for requirement in requirements}
+        self.assertNotIn("rocm-runtimes", names)
+        self.assertNotIn("runtime-consumer", names)
+
+    def test_explicit_selection_preserves_platform_exclusion(self):
+        requirements = srd._required_artifacts_for_stages(
+            self.topology,
+            ["compiler-runtime"],
+            ["generic"],
+            platform="windows",
+            selected_artifacts=["rocm-runtimes"],
+        )
+        self.assertNotIn("rocm-runtimes", {r.name for r in requirements})
+
+    def test_unknown_selection_is_rejected(self):
+        with self.assertRaisesRegex(ValueError, "Unknown selected artifacts: typo"):
+            srd._required_artifacts_for_stages(
+                self.topology,
+                ["compiler-runtime"],
+                ["generic"],
+                platform="linux",
+                selected_artifacts=["typo"],
+            )
+
+    def test_granular_plan_respects_defaults_and_selection(self):
+        for path, field in (
+            ("rocm-systems/runtimes/ddi/libamdf/src/lib.rs", "impacted_artifacts"),
+            ("rocm-systems/projects/amdsmi/example.cpp", "reusable_artifacts"),
+        ):
+            for selected in ((), ("rocm-runtimes",)):
+                with self.subTest(path=path, selected=selected):
+                    plan = srd.plan_stage_reuse(
+                        changed_files=[path],
+                        platform="linux",
+                        topology=self.topology,
+                        selected_artifacts=selected,
+                    )
+                    self.assertTrue(plan.artifact_level_analysis)
+                    self.assertEqual(
+                        "rocm-runtimes" in getattr(plan, field), bool(selected)
+                    )
+
+    def test_granular_availability_respects_defaults_and_selection(self):
+        plan = srd.StageReusePlan(
+            candidate_stages=("compiler-runtime",),
+            rebuild_stages=("math-libs",),
+            full_rebuild_required=False,
+            reasons=(),
+            impacted_artifacts=("blas",),
+            reusable_artifacts=("core-runtime", "rocm-runtimes"),
+            artifact_level_analysis=True,
+        )
+        for selected in ((), ("rocm-runtimes",)):
+            with self.subTest(selected=selected):
+                with patch.object(srd, "plan_stage_reuse", return_value=plan):
+                    result = compute_auto_stage_reuse(
+                        changed_files=["rocm-libraries/projects/rocblas/x.cpp"],
+                        mode=StageReuseMode.DRY_RUN,
+                        linux_amdgpu_families=["generic"],
+                        topology=self.topology,
+                        selected_artifacts=selected,
+                        baseline_selector=_selector(
+                            _baseline("123", self.default_filenames)
+                        ),
+                    )
+                self.assertEqual(result.reusable_artifacts, ("core-runtime",))
+                self.assertEqual(
+                    result.rebuild_artifacts,
+                    ("blas", "rocm-runtimes") if selected else ("blas",),
+                )
+                self.assertEqual(result.applied_reuse_stages, ())
+
+    def test_granular_availability_retains_required_opt_in(self):
+        self.topology.artifacts["core-runtime"].artifact_deps.append("rocm-runtimes")
+        available, unavailable = srd._filter_available_artifacts(
+            self.topology,
+            ["core-runtime", "rocm-runtimes"],
+            target_families_by_platform={"linux": ["generic"]},
+            available_filenames_by_platform={"linux": self.default_filenames},
+        )
+        self.assertEqual(available, ("core-runtime",))
+        self.assertEqual(unavailable, ("rocm-runtimes",))
 
 
 class PlatformAwareAvailabilityTest(unittest.TestCase):
