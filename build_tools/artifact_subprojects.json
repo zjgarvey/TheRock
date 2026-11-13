@@ -23,11 +23,9 @@
     "hipBLAS",
     "hipBLAS-common",
     "hipBLASLt",
-    "hipSOLVER",
-    "hipSPARSE",
+    "origami",
     "rocBLAS",
-    "rocRoller",
-    "rocSOLVER"
+    "rocRoller"
   ],
   "composable-kernel": [
     "composable_kernel"
@@ -83,8 +81,20 @@
   "hipdnn": [
     "hipDNN"
   ],
+  "hipfile": [
+    "hipfile"
+  ],
   "hipify": [
     "hipify"
+  ],
+  "hipkernelprovider": [
+    "hipkernelprovider"
+  ],
+  "hiptensor": [
+    "hipTensor"
+  ],
+  "hipthreads": [
+    "hipthreads"
   ],
   "host-blas": [
     "therock-host-blas",
@@ -93,11 +103,20 @@
   "host-suite-sparse": [
     "therock-SuiteSparse"
   ],
+  "kfdtest": [
+    "kfdtest"
+  ],
+  "libhipcxx": [
+    "libhipcxx"
+  ],
   "miopen": [
     "MIOpen"
   ],
   "miopenprovider": [
     "miopenprovider"
+  ],
+  "mirage": [
+    "mirage"
   ],
   "nlohmann-json": [
     "therock-nlohmann-json"
@@ -106,18 +125,26 @@
     "hipCCL",
     "hipCCL_tests"
   ],
+  "profiler-hub": [
+    "profiler-hub",
+    "profiler-hub-install-test"
+  ],
   "rand": [
     "hipRAND",
     "rocRAND"
   ],
   "rccl": [
     "rccl",
-    "rccl-tests"
+    "rccl-tests",
+    "rccl-translate"
   ],
   "rdc": [
     "amdsmi",
     "rdc",
     "rocprofiler-sdk"
+  ],
+  "rocalution": [
+    "rocALUTION"
   ],
   "rocdecode": [
     "rocdecode"
@@ -126,6 +153,12 @@
     "amd-comgr",
     "amd-dbgapi",
     "rocgdb"
+  ],
+  "rocjitsu-hotswap": [
+    "rocjitsu-hotswap"
+  ],
+  "rocjitsu": [
+    "rocjitsu"
   ],
   "rocjpeg": [
     "rocjpeg"
@@ -145,6 +178,7 @@
   ],
   "rocprofiler-systems": [
     "amdsmi",
+    "hipfile",
     "rocprofiler-sdk",
     "rocprofiler-systems"
   ],
@@ -172,7 +206,12 @@
   "rpp": [
     "rpp"
   ],
+  "solver": [
+    "hipSOLVER",
+    "rocSOLVER"
+  ],
   "sparse": [
+    "hipSPARSE",
     "hipSPARSELt",
     "rocSPARSE"
   ],

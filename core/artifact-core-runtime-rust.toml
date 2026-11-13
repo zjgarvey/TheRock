@@ -1,0 +1,32 @@
+# The selected provider owns the canonical HSA package. Separate descriptors
+# keep stale ROCr stages out when reconfiguring an existing build tree.
+[components.lib."core/rust-hsa/stage"]
+[components.dbg."core/rust-hsa/stage"]
+[components.dev."core/rust-hsa/stage"]
+[components.doc."core/rust-hsa/stage"]
+
+# Public profiler headers and standalone kernel-interface tests consume hsakmt.
+[components.lib."core/hsakmt/stage"]
+[components.dev."core/hsakmt/stage"]
+[components.doc."core/hsakmt/stage"]
+
+[components.run."core/rocminfo/stage"]
+include = ["bin/**"]
+[components.dbg."core/rocminfo/stage"]
+[components.doc."core/rocminfo/stage"]
+
+[components.lib."core/hrx/stage"]
+optional = true
+[components.run."core/hrx/stage"]
+optional = true
+include = ["lib/hrx/bin/**"]
+[components.dbg."core/hrx/stage"]
+optional = true
+[components.dev."core/hrx/stage"]
+optional = true
+include = ["lib/hrx/include/**", "lib/hrx/lib/cmake/**"]
+[components.doc."core/hrx/stage"]
+optional = true
+[components.test."core/hrx/stage"]
+optional = true
+include = ["lib/hrx/share/hrx-cts/**"]

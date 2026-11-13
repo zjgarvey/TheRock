@@ -1154,6 +1154,19 @@ class ExtractSourcePathFromPathTest(unittest.TestCase):
     def test_root_file_returns_none(self):
         self.assertIsNone(BuildTopology.extract_source_path_from_path("CMakeLists.txt"))
 
+    def test_runtime_changes_invalidate_provider_and_private_artifact(self):
+        topology = get_topology()
+        self.assertCountEqual(
+            topology.get_artifacts_for_path("runtimes/ddi/libamdf/src/lib.rs"),
+            ["core-runtime", "rocm-runtimes"],
+        )
+        self.assertEqual(
+            BuildTopology.extract_source_path_from_path("runtimes"), "runtimes"
+        )
+        self.assertIsNone(
+            BuildTopology.extract_source_path_from_path("runtimes-other/file")
+        )
+
 
 class GetArtifactsForSourcePathTest(unittest.TestCase):
     """Tests for artifact lookup by source_path."""

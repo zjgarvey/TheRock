@@ -19,13 +19,13 @@ option(THEROCK_BUILD_TESTING "Build the upstream runtimes host tests" OFF)
 set(BUILD_TESTING "${THEROCK_BUILD_TESTING}" CACHE BOOL "Build upstream tests" FORCE)
 include(CTest)
 
-# There is no HSA CTS CMake integration in the standalone runtimes build.
+# The standalone runtimes build has no integrated CTS runner yet.
 # Ignored GPU tests in Cargo's rocddi test binary are a separate interface.
-option(ROCM_RUNTIMES_BUILD_CTS "Build the upstream HSA CTS integration" OFF)
-set(ROCM_RUNTIMES_CTS_AVAILABLE OFF CACHE INTERNAL "Upstream HSA CTS availability" FORCE)
-message(STATUS "Standalone runtimes HSA CTS integration: unavailable")
+option(ROCM_RUNTIMES_BUILD_CTS "Build the upstream CTS integration" OFF)
+set(ROCM_RUNTIMES_CTS_AVAILABLE OFF CACHE INTERNAL "Upstream CTS availability" FORCE)
+message(STATUS "Standalone runtimes CTS integration: unavailable")
 if(ROCM_RUNTIMES_BUILD_CTS)
-  message(FATAL_ERROR "HSA CTS was requested, but this upstream runtimes build has no CTS integration")
+  message(FATAL_ERROR "CTS was requested, but this upstream runtimes build has no CTS integration")
 endif()
 
 set(_upstream_binary_dir "${CMAKE_CURRENT_BINARY_DIR}/upstream")

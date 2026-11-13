@@ -63,6 +63,7 @@
 #   artifact_deps = ["dep1", "dep2"]        # Optional: other artifacts this depends on
 #   feature_name = "FEATURE_NAME"           # Optional: override auto-generated name
 #   feature_group = "GROUP_NAME"            # Optional: override auto-generated group
+#   default_enabled = false                # Optional: override the group's default
 #   platform = "windows"                    # Optional: platform-specific artifact
 #   disable_platforms = ["windows"]         # Optional: platforms where disabled
 #   disable_platforms_if_flags_not_set = { windows = "FOO" }  # Optional: conditional platform disables
@@ -541,6 +542,16 @@ feature_group = "ALL"
 
 # --- Runtime Artifacts ---
 
+[artifacts.rocm-runtimes]
+artifact_group = "core-runtime"
+type = "target-neutral"
+artifact_deps = ["amd-llvm"]
+feature_name = "ROCM_RUNTIMES"
+feature_group = "CORE"
+default_enabled = false
+disable_platforms = ["windows"]
+source_paths = ["runtimes"]
+
 [artifacts.core-runtime]
 artifact_group = "core-runtime"
 type = "target-neutral"
@@ -549,7 +560,7 @@ feature_name = "CORE_RUNTIME"
 feature_group = "CORE"
 disable_platforms_if_flags_not_set = { windows = "HSA_WINDOWS_SHARED_RUNTIME" }
 test_artifacts = ["core-hiptests", "rocrtst"]  # When building ROCR, also build hip-tests and rocrtst
-source_paths = ["rocr-runtime", "rocminfo", "amdgpu-windows-interop"]
+source_paths = ["rocr-runtime", "runtimes", "rocminfo", "amdgpu-windows-interop"]
 
 [artifacts.wsl-rocdxg]
 artifact_group = "wsl-rocdxg"

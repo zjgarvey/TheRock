@@ -1391,7 +1391,9 @@ class BuildTopology:
 
     @staticmethod
     def extract_source_path_from_path(path: str) -> Optional[str]:
-        """Extract source path name from projects/NAME/..., shared/NAME/..., or dnn-providers/NAME/... path."""
+        """Extract an artifact source name from a superrepo-relative path."""
+        if path == "runtimes" or path.startswith("runtimes/"):
+            return "runtimes"
         match = re.match(r"^(?:projects|shared|dnn-providers)/([^/]+)(?:/|$)", path)
         return match.group(1) if match else None
 

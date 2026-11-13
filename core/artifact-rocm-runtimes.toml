@@ -1,0 +1,13 @@
+# Candidate libraries and headers have a private prefix so a component-only
+# build can be installed alongside the selected SDK HSA provider.
+[components.lib."core/rocm-runtimes/stage"]
+include = ["lib/rocm-runtimes/lib/*.so*"]
+[components.dev."core/rocm-runtimes/stage"]
+include = [
+  "lib/rocm-runtimes/lib/*.a",
+  "lib/rocm-runtimes/lib/*.rsp",
+  "lib/rocm-runtimes/include/**",
+  "lib/rocm-runtimes/share/rocm-runtimes/*.json",
+]
+[components.doc."core/rocm-runtimes/stage"]
+include = ["lib/rocm-runtimes/share/doc/**"]

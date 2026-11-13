@@ -276,6 +276,11 @@ cmake_dependent_option(THEROCK_ROCWMMA_ENABLE_BENCHMARKS
 therock_finalize_features()
 therock_report_features()
 
+# HSA consumers depend on the selected provider at configure time. Keeping the
+# provider in the build graph makes compilation, staging and packaging agree.
+include(therock_runtime_provider)
+therock_select_runtime_providers(THEROCK_HSA_RUNTIME_TARGET THEROCK_HSAKMT_TARGET)
+
 ################################################################################
 # GPU target selection
 #
