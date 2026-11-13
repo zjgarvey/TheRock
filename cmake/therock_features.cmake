@@ -47,6 +47,12 @@ function(therock_add_feature feature_name)
     endif()
   endif()
 
+  # An explicit default keeps experimental artifacts opt-in even when their
+  # group (including ALL) is enabled. Explicit cache values still take priority.
+  if(DEFINED ARG_DEFAULT)
+    set(_default_enabled "${ARG_DEFAULT}")
+  endif()
+
   # Check if current platform is in DISABLE_PLATFORMS list
   # Always set the platform disabled list if DISABLE_PLATFORMS is specified
   if(ARG_DISABLE_PLATFORMS)

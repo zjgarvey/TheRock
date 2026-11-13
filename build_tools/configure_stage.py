@@ -110,7 +110,19 @@ def get_stage_features(
     inbound = topology.get_inbound_artifacts(stage_name)
 
     # Combine: we need features for both produced and inbound artifacts
-    all_artifacts = produced | inbound
+    all_artifacts = {
+        name
+        for name in produced | inbound
+        if topology.artifacts[name].default_enabled is not False
+    }
+    # Required dependencies remain enabled even if they are otherwise opt-in.
+    pending = list(all_artifacts)
+    while pending:
+        artifact = topology.artifacts.get(pending.pop())
+        for dependency in artifact.artifact_deps if artifact else ():
+            if dependency not in all_artifacts:
+                all_artifacts.add(dependency)
+                pending.append(dependency)
 
     # Convert artifact names to feature names
     features = set()

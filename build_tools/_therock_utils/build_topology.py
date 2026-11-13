@@ -113,6 +113,7 @@ class Artifact:
     platform: Optional[str] = None  # e.g., "windows"
     feature_name: Optional[str] = None  # Override default feature name
     feature_group: Optional[str] = None  # Override default feature group
+    default_enabled: Optional[bool] = None  # Override the feature group's default
     disable_platforms: List[str] = field(
         default_factory=list
     )  # Platforms where disabled
@@ -215,6 +216,11 @@ class BuildTopology:
 
         # Parse artifacts
         for artifact_name, artifact_data in data.get("artifacts", {}).items():
+            default_enabled = artifact_data.get("default_enabled")
+            if default_enabled is not None and not isinstance(default_enabled, bool):
+                raise ValueError(
+                    f"Artifact '{artifact_name}' default_enabled must be a boolean"
+                )
             python_requires = artifact_data.get("python_requires", [])
             if python_requires and not isinstance(python_requires, list):
                 raise ValueError(
@@ -239,6 +245,7 @@ class BuildTopology:
                 platform=artifact_data.get("platform"),
                 feature_name=artifact_data.get("feature_name"),
                 feature_group=artifact_data.get("feature_group"),
+                default_enabled=default_enabled,
                 disable_platforms=artifact_data.get("disable_platforms", []),
                 disable_platforms_if_flags_not_set=disable_platforms_if_flags_not_set,
                 disable_processors=artifact_data.get("disable_processors", []),
