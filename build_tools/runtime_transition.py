@@ -4,8 +4,10 @@
 
 """Build paired, isolated distributions and measure a pinned test selection.
 
-No GitHub writes. Detailed diagnostics stay beside the strict reporter manifest.
-The container subcommand is also the local reproduction interface for CI.
+Build and test commands produce local reports and detailed diagnostics. The
+container command reproduces CI locally; dispatch starts an approved worker.
+Explicit publish-report writes bounded issues after trusted default-branch
+Actions context is verified.
 """
 
 import argparse
@@ -30,6 +32,7 @@ import uuid
 import xml.etree.ElementTree as ET
 
 from github_actions.detect_failed_logs import find_failed_logs
+import runtime_transition_snapshot as snapshot
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 SUPPORT_DIR = SCRIPT_DIR / "runtime_transition"
@@ -189,6 +192,7 @@ def clean_environment(root: Path | None = None) -> dict[str, str]:
     environment.update(
         PATH=SYSTEM_PATH,
         PYTHONNOUSERSITE="1",
+        PYTHONDONTWRITEBYTECODE="1",
         GIT_CONFIG_NOSYSTEM="1",
         GIT_CONFIG_GLOBAL="/dev/null",
     )
@@ -1077,6 +1081,10 @@ class Transition:
 
     def run_profile(self, role: str) -> None:
         environment = clean_environment()
+        environment.update(
+            CMAKE_BUILD_PARALLEL_LEVEL=str(self.args.jobs),
+            CARGO_BUILD_JOBS=str(self.args.jobs),
+        )
         cargo_seed = Path("/opt/runtime-transition/cargo")
         if cargo_seed.is_dir():
             cargo_home = self.work / role / "cargo-home"
@@ -1096,10 +1104,12 @@ class Transition:
             "-DCMAKE_BUILD_TYPE=Release",
             f"-DTHEROCK_AMDGPU_FAMILIES={self.args.gpu_family}",
             f"-DTHEROCK_DIST_AMDGPU_FAMILIES={self.args.gpu_family}",
+            f"-DTHEROCK_TEST_AMDGPU_FAMILIES={self.args.gpu_family}",
             "-DTHEROCK_ENABLE_ALL=ON",
             "-DTHEROCK_BUILD_TESTING=ON",
             "-DBUILD_TESTING=ON",
             "-DTHEROCK_ENABLE_ROCM_RUNTIMES=ON",
+            f"-DROCM_RUNTIMES_CARGO_JOBS={self.args.jobs}",
             f"-DTHEROCK_FLAG_REPLACE_ROCR_WITH_RUST_HSA={'ON' if role == 'candidate' else 'OFF'}",
         ]
         if "CARGO_HOME" in environment:
@@ -1376,7 +1386,7 @@ def initialize_missing(transition: Transition) -> None:
 
 
 def validate_checkout(checkout: Path, expected: str) -> None:
-    environment = clean_environment()
+    environment = {**clean_environment(), "GIT_OPTIONAL_LOCKS": "0"}
     if checkout.is_file():
         # The launcher verified a clean source before exporting this immutable
         # commit. A bundle exposes no mutable checkout or external .git path.
@@ -1427,6 +1437,25 @@ def git_object_stores(common: Path) -> list[Path]:
     return stores
 
 
+def create_orchestration_snapshot(args: argparse.Namespace) -> Path:
+    source = args.therock_checkout or SCRIPT_DIR.parent
+    if args.therock_checkout:
+        validate_checkout(source, args.therock_ref)
+    try:
+        return snapshot.create_orchestration_snapshot(
+            args.work_dir.resolve(), source, args.therock_ref, clean_environment()
+        )
+    except snapshot.SnapshotError as error:
+        raise PrerequisiteError(str(error)) from error
+
+
+def verify_orchestration_snapshot(work: Path, expected: str) -> Path:
+    try:
+        return snapshot.verify_orchestration_snapshot(work, expected)
+    except snapshot.SnapshotError as error:
+        raise PrerequisiteError(str(error)) from error
+
+
 def archive_diagnostics(work: Path) -> None:
     """Preserve complete logs/caches privately without copying full build trees."""
     with tarfile.open(work / "diagnostics.tar.gz", "w:gz") as archive:
@@ -1445,8 +1474,9 @@ def archive_diagnostics(work: Path) -> None:
 
 
 def finish(transition: Transition) -> int:
+    root = verify_orchestration_snapshot(transition.work, transition.args.therock_ref)
     initialize_missing(transition)
-    reporter = SCRIPT_DIR / "runtime_transition_report.py"
+    reporter = root / "build_tools/runtime_transition_report.py"
     return subprocess.call(
         [
             sys.executable,
@@ -1467,6 +1497,7 @@ def launch_container(args: argparse.Namespace, plan: Plan) -> int:
             "Use a new work directory; builds and results are never reused"
         )
     work.parent.mkdir(parents=True, exist_ok=True)
+    snapshot = create_orchestration_snapshot(args)
     if IMAGE.fullmatch(args.container_image):
         subprocess.run(["docker", "pull", args.container_image], check=True)
     metadata = json.loads(
@@ -1535,15 +1566,19 @@ def launch_container(args: argparse.Namespace, plan: Plan) -> int:
         command += ["--group-add", str(group)]
     command += [
         "--mount",
-        f"type=bind,src={SCRIPT_DIR.parent},dst=/orchestrator,readonly",
+        f"type=bind,src={snapshot},dst=/orchestrator,readonly",
         "--mount",
         f"type=bind,src={work.parent},dst=/runs",
+        "--mount",
+        f"type=bind,src={snapshot},dst=/runs/{snapshot.name},readonly",
         "--mount",
         f"type=bind,src={args.plan.resolve()},dst=/plan.json,readonly",
         "--mount",
         f"type=bind,src={metadata_path},dst=/image-metadata.json,readonly",
         "--env",
         f"HOME=/runs/{work.name}/home",
+        "--env",
+        "PYTHONDONTWRITEBYTECODE=1",
         image_id,
         "python3",
         "/orchestrator/build_tools/runtime_transition.py",
@@ -1589,6 +1624,7 @@ def launch_container(args: argparse.Namespace, plan: Plan) -> int:
             command[2:2] = ["--mount", f"type=bind,src={store},dst={store},readonly"]
         command += ["--source-git-dir", str(source_git)]
     try:
+        verify_orchestration_snapshot(work, args.therock_ref)
         result = subprocess.call(command)
     finally:
         # Docker startup failures and SIGKILL cannot flush the child's manifest.
@@ -1710,11 +1746,14 @@ def bind_evidence(work: Path, url: str) -> int:
 
 
 def prepare_publication(work: Path, url: str) -> int:
+    manifest = json.loads((work / "manifest.json").read_text())
+    expected = manifest["profiles"]["baseline"]["sources"]["therock"]
+    root = verify_orchestration_snapshot(work, expected)
     bind_evidence(work, url)
     result = subprocess.call(
         [
             sys.executable,
-            str(SCRIPT_DIR / "runtime_transition_report.py"),
+            str(root / "build_tools/runtime_transition_report.py"),
             "--input",
             str(work / "manifest.json"),
             "--output-dir",
@@ -1925,6 +1964,8 @@ def main() -> int:
         return result or report_result
     if args.command == "finish":
         return finish(transition)
+
+    verify_orchestration_snapshot(transition.work, args.therock_ref)
 
     # Actions cancellation first sends SIGINT; local/docker SIGTERM uses the
     # same cleanup path. Hard kill is covered by the last atomic checkpoint.

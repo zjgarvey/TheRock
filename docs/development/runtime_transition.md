@@ -80,17 +80,35 @@ changes; ignored build directories are allowed. The launcher mounts the Git obje
 detached source repository for each profile. It preserves shallow boundaries
 and resolves local alternate stores, so committed snapshots from shallow or
 partial clones work without exporting their history.
+The orchestration tools also come from the exact `--therock-ref` commit. The
+launcher archives only its `build_tools/` tree into a fresh sibling directory
+named `.<run-name>-orchestrator`, validates bounded regular files and directories,
+and records the source SHA plus archive and content SHA-256 digests in
+`snapshot.json`. With `--therock-checkout`, that clean checkout supplies the
+commit; otherwise the launcher's Git checkout must already contain the requested
+commit and tool objects. The snapshot operation uses locally available objects.
+The retained tools are mounted read-only at `/orchestrator` and at their sibling
+path under `/runs`. Foundation probes, selection helpers, loader audit source,
+and report generation use these pinned tools throughout the run. Editing the
+original checkout after launch leaves their bytes fixed.
 With remote sources, both profiles
 clone the public `--therock-repository` and fetch the exact commit. The
 `rocm-systems` override is the same exact `--runtime-ref` on both sides; other
 submodule pins and TheRock patches come from the TheRock commit. No stage or
-artifact reuse occurs. CMake receives both build and distribution GPU families;
+artifact reuse occurs. CMake receives the same `--gpu-family` for build,
+distribution, and test target selection through `THEROCK_AMDGPU_FAMILIES`,
+`THEROCK_DIST_AMDGPU_FAMILIES`, and `THEROCK_TEST_AMDGPU_FAMILIES`;
 the observed GPU ISA and count are recorded separately.
 
 A local image needs no registry push: `sha256:<image-id>` is accepted locally.
 Registry images require `name@sha256:<digest>`. The launcher inspects the image,
 checks the requested identity, and runs the inspected immutable image ID.
 It copies the image's Cargo seed into writable, separate profile caches.
+
+`--jobs` sets the fetch and outer build parallelism and each nested CMake/Cargo
+build's job budget through `CMAKE_BUILD_PARALLEL_LEVEL`, `CARGO_BUILD_JOBS`, and
+`ROCM_RUNTIMES_CARGO_JOBS`. This is a per-build limit. TheRock's background pools
+still control concurrent components, so the option is not a global process cap.
 
 Advance `--runtime-ref` to test a newer implementation. New commits can use the existing image when their
 `Cargo.lock` hash and `rust-toolchain.toml` match its labels.
@@ -163,6 +181,11 @@ and CMake caches. Keep that archive and the full run directory on access-control
 storage. Interruptions leave atomic manifest checkpoints; `finish` can regenerate
 an offline report after an early failure, using the same identity/plan arguments
 as `container` and the existing `--work-dir`.
+Retain the sibling orchestration snapshot with the run directory. Host
+finalization, later `finish` calls, and report preparation verify its source,
+archive digest, and complete file contents before executing the retained
+reporter. Missing helpers, unavailable commits, changed contents or mismatched
+provenance stop report generation.
 
 ## Manual Actions and cadence activation
 
@@ -216,6 +239,8 @@ measured unit before a candidate failure is called a regression. Dependency
 blocks do not create separate failure issues. Stable keys identify logical
 component/phase or test cases across revisions; a changed status code alone
 is not a root-cause diagnosis.
+Dedupe keys also distinguish OS, GPU ISA, GPU count, and build type. Driver
+revision changes preserve the same issue identity for that configuration.
 
 Issue candidates are local files by default. Optional Actions publication uses
 a separate protected `runtime-transition-publication` environment and a serialized

@@ -4,11 +4,14 @@
 """Host-only production-interface tests; no SDK, GPU, Docker, or network needed."""
 
 import argparse
+import io
 import json
 import os
 from pathlib import Path
+import shutil
 import subprocess
 import sys
+import tarfile
 import tempfile
 import unittest
 from unittest.mock import MagicMock, patch
@@ -16,6 +19,47 @@ import xml.etree.ElementTree as ET
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import runtime_transition as rt
+
+
+def git(checkout: Path, *arguments: str) -> str:
+    return subprocess.check_output(
+        [
+            "git",
+            "-c",
+            "user.name=Test",
+            "-c",
+            "user.email=test@example.com",
+            "-c",
+            "commit.gpgsign=false",
+            *arguments,
+        ],
+        cwd=checkout,
+        env=rt.clean_environment(),
+        text=True,
+        stderr=subprocess.DEVNULL,
+    ).strip()
+
+
+def tool_source(root: Path) -> tuple[Path, str]:
+    checkout = root / "tool-source"
+    checkout.mkdir()
+    for name in (
+        "build_tools/runtime_transition.py",
+        "build_tools/runtime_transition_report.py",
+        "build_tools/runtime_transition_snapshot.py",
+        "build_tools/runtime_transition/ctest_driver.py",
+        "build_tools/runtime_transition/loader_audit.c",
+        "build_tools/github_actions/detect_failed_logs.py",
+        "build_tools/github_actions/github_actions_api.py",
+    ):
+        target = checkout / name
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(rt.SCRIPT_DIR.parent / name, target)
+    (checkout / "unrelated.txt").write_text("Outside the orchestration snapshot\n")
+    git(checkout, "init")
+    git(checkout, "add", ".")
+    git(checkout, "commit", "-m", "Orchestration fixture")
+    return checkout, git(checkout, "rev-parse", "HEAD")
 
 
 class TransitionTest(unittest.TestCase):
@@ -540,6 +584,7 @@ class TransitionTest(unittest.TestCase):
         self.assertEqual(rt.git_object_stores(common), [first, second])
 
     def test_local_launcher_pins_inspected_id_and_omits_absent_evidence(self) -> None:
+        self.args.therock_checkout, self.args.therock_ref = tool_source(self.root)
         self.args.work_dir = self.root / "launch"
         self.args.plan = rt.SUPPORT_DIR / "bringup.json"
         metadata = {
@@ -547,8 +592,15 @@ class TransitionTest(unittest.TestCase):
             "RepoDigests": [],
             "Config": {"Labels": {}},
         }
+        check_output = subprocess.check_output
+
+        def inspect(command: list[str], **kwargs: object) -> str:
+            if command[0] == "docker":
+                return json.dumps(metadata)
+            return check_output(command, **kwargs)
+
         with patch.object(
-            rt.subprocess, "check_output", return_value=json.dumps(metadata)
+            rt.subprocess, "check_output", side_effect=inspect
         ), patch.object(rt.subprocess, "call", return_value=1) as launch:
             self.assertEqual(rt.launch_container(self.args, self.plan), 1)
         command = launch.call_args.args[0]
@@ -569,10 +621,29 @@ class TransitionTest(unittest.TestCase):
         )
         self.assertIn(self.args.container_image, command)
         self.assertNotIn("/opt/rocm", " ".join(command))
-        self.assertTrue(any("/orchestrator,readonly" in item for item in command))
+        snapshot = (
+            self.args.work_dir.parent / f".{self.args.work_dir.name}-orchestrator"
+        )
+        self.assertIn(f"type=bind,src={snapshot},dst=/orchestrator,readonly", command)
+        self.assertIn(
+            f"type=bind,src={snapshot},dst=/runs/{snapshot.name},readonly", command
+        )
+        self.assertNotIn(f"src={rt.SCRIPT_DIR.parent},", " ".join(command))
+        self.assertEqual(
+            rt.verify_orchestration_snapshot(self.args.work_dir, self.args.therock_ref),
+            snapshot,
+        )
+        common = Path(git(self.args.therock_checkout, "rev-parse", "--git-common-dir"))
+        common = (self.args.therock_checkout / common).resolve()
+        self.assertIn(f"type=bind,src={common},dst={common},readonly", command)
+        self.assertIn(
+            f"type=bind,src={common / 'objects'},dst={common / 'objects'},readonly",
+            command,
+        )
         self.assertTrue((self.args.work_dir / "manifest.json").is_file())
 
     def test_registry_digest_mismatch_prevents_container_execution(self) -> None:
+        self.args.therock_checkout, self.args.therock_ref = tool_source(self.root)
         self.args.work_dir = self.root / "bad-image"
         self.args.plan = rt.SUPPORT_DIR / "bringup.json"
         self.args.container_image = "registry/image@sha256:" + "c" * 64
@@ -580,13 +651,336 @@ class TransitionTest(unittest.TestCase):
             "Id": "sha256:" + "a" * 64,
             "RepoDigests": ["other/image@sha256:" + "b" * 64],
         }
-        with patch.object(rt.subprocess, "run"), patch.object(
-            rt.subprocess, "check_output", return_value=json.dumps(metadata)
+        check_output = subprocess.check_output
+        run = subprocess.run
+
+        def inspect(command: list[str], **kwargs: object) -> str:
+            if command[0] == "docker":
+                return json.dumps(metadata)
+            return check_output(command, **kwargs)
+
+        def pull(command: list[str], **kwargs: object) -> object:
+            if command[:2] == ["docker", "pull"]:
+                return subprocess.CompletedProcess(command, 0)
+            return run(command, **kwargs)
+
+        with patch.object(rt.subprocess, "run", side_effect=pull), patch.object(
+            rt.subprocess, "check_output", side_effect=inspect
         ), patch.object(rt.subprocess, "call") as launch, self.assertRaisesRegex(
             ValueError, "did not match"
         ):
             rt.launch_container(self.args, self.plan)
         launch.assert_not_called()
+
+    def test_snapshot_pins_exact_git_tools_after_original_edits(self) -> None:
+        source, commit = tool_source(self.root)
+        self.args.therock_checkout = source
+        self.args.therock_ref = commit
+        self.args.work_dir = self.root / "snapshot-run"
+        donor = {
+            str(path.relative_to(source)): path.read_bytes()
+            for path in (source / ".git").rglob("*")
+            if path.is_file()
+        }
+        snapshot = rt.create_orchestration_snapshot(self.args)
+        self.assertFalse(self.args.work_dir.exists())
+        self.assertFalse((snapshot / "unrelated.txt").exists())
+        self.assertFalse((snapshot / ".git").exists())
+        self.assertEqual(
+            donor,
+            {
+                str(path.relative_to(source)): path.read_bytes()
+                for path in (source / ".git").rglob("*")
+                if path.is_file()
+            },
+        )
+        expected = {
+            name: (snapshot / name).read_bytes()
+            for name in rt.snapshot.ORCHESTRATION_HELPERS
+        }
+        for name in expected:
+            self.assertEqual(expected[name], (source / name).read_bytes())
+            (source / name).write_text("raise SystemExit(99)\n")
+        git(source, "add", ".")
+        git(source, "commit", "-m", "Edit original tools after snapshot")
+        self.assertNotEqual(git(source, "rev-parse", "HEAD"), commit)
+        self.assertEqual(
+            rt.verify_orchestration_snapshot(self.args.work_dir, commit), snapshot
+        )
+        for name, content in expected.items():
+            self.assertEqual((snapshot / name).read_bytes(), content)
+        output = subprocess.check_output(
+            [
+                sys.executable,
+                str(snapshot / "build_tools/runtime_transition.py"),
+                "--help",
+            ],
+            env=rt.clean_environment(),
+            text=True,
+        )
+        self.assertIn("container", output)
+        metadata = json.loads((snapshot / "snapshot.json").read_text())
+        self.assertEqual(metadata["source_sha"], commit)
+        self.assertEqual(
+            metadata["archive_sha256"], rt.digest(snapshot / "build-tools.tar")
+        )
+        with self.assertRaises(FileExistsError):
+            # Reuse cannot silently repin a run after the original changes.
+            self.args.therock_checkout = None
+            rt.create_orchestration_snapshot(self.args)
+
+    def test_current_checkout_snapshot_uses_requested_commit_not_worktree(self) -> None:
+        source, commit = tool_source(self.root)
+        self.args.therock_ref = commit
+        runner = source / "build_tools/runtime_transition.py"
+        expected = runner.read_bytes()
+        runner.write_text("raise SystemExit(99)\n")
+        git(source, "add", ".")
+        git(source, "commit", "-m", "Different checkout HEAD")
+        with patch.object(rt, "SCRIPT_DIR", source / "build_tools"):
+            snapshot = rt.create_orchestration_snapshot(self.args)
+        self.assertEqual(
+            (snapshot / "build_tools/runtime_transition.py").read_bytes(), expected
+        )
+
+    def test_finish_and_later_finish_execute_retained_pinned_reporter(self) -> None:
+        source, commit = tool_source(self.root)
+        self.args.therock_checkout = source
+        self.args.therock_ref = commit
+        self.args.work_dir = self.root / "finish-run"
+        snapshot = rt.create_orchestration_snapshot(self.args)
+        (source / "build_tools/runtime_transition_report.py").write_text(
+            "raise SystemExit(99)\n"
+        )
+        transition = rt.Transition(self.args, self.plan)
+        with patch.object(rt, "SCRIPT_DIR", source / "build_tools"):
+            self.assertEqual(rt.finish(transition), 1)
+            report = json.loads((transition.work / "reports/report.json").read_text())
+            self.assertEqual(
+                report["profiles"]["baseline"]["sources"]["therock"], commit
+            )
+            self.assertEqual(rt.finish(rt.Transition(self.args, self.plan)), 1)
+        rt.verify_orchestration_snapshot(transition.work, commit)
+        self.assertFalse(list(snapshot.rglob("*.pyc")))
+
+    def test_report_preparation_executes_the_same_pinned_reporter(self) -> None:
+        source, commit = tool_source(self.root)
+        self.args.therock_checkout = source
+        self.args.therock_ref = commit
+        rt.create_orchestration_snapshot(self.args)
+        (source / "build_tools/runtime_transition_report.py").write_text(
+            "raise SystemExit(99)\n"
+        )
+        output = self.root / "publication-output"
+        with patch.dict(
+            os.environ,
+            {
+                "GITHUB_RUN_ID": "123",
+                "GITHUB_RUN_ATTEMPT": "1",
+                "GITHUB_EVENT_NAME": "workflow_dispatch",
+                "GITHUB_REF": "refs/heads/main",
+                "GITHUB_SHA": commit,
+                "GITHUB_OUTPUT": str(output),
+            },
+        ), patch.object(rt, "SCRIPT_DIR", source / "build_tools"):
+            transition = rt.Transition(self.args, self.plan)
+            transition.checkpoint()
+            self.assertEqual(
+                rt.prepare_publication(
+                    transition.work,
+                    "https://github.com/ROCm/TheRock/actions/runs/123/artifacts/456",
+                ),
+                0,
+            )
+        self.assertEqual(
+            output.read_text(),
+            f"sha256={rt.digest(transition.work / 'reports/report.json')}\n",
+        )
+
+    def test_archive_attributes_cannot_change_the_pinned_git_tree(self) -> None:
+        source, commit = tool_source(self.root)
+        self.args.therock_checkout = source
+        for index, attribute in enumerate(("export-subst", "export-ignore")):
+            with self.subTest(attribute=attribute):
+                extra = source / "build_tools/extra.txt"
+                extra.write_text("$Format:%H$\n")
+                (source / ".gitattributes").write_text(
+                    f"build_tools/extra.txt {attribute}\n"
+                )
+                git(source, "add", ".")
+                git(source, "commit", "-m", "Archive attribute fixture")
+                self.args.therock_ref = git(source, "rev-parse", "HEAD")
+                self.args.work_dir = self.root / f"attributes-{index}"
+                with self.assertRaisesRegex(rt.PrerequisiteError, "source tree"):
+                    rt.create_orchestration_snapshot(self.args)
+                git(source, "reset", "--hard", commit)
+
+    def test_corrupt_mismatched_or_missing_snapshot_prevents_reporter_execution(
+        self,
+    ) -> None:
+        source, commit = tool_source(self.root)
+        self.args.therock_checkout = source
+        self.args.therock_ref = commit
+        for kind in (
+            "content",
+            "archive",
+            "metadata",
+            "symlink",
+            "extra",
+            "missing",
+            "source",
+        ):
+            with self.subTest(kind=kind):
+                self.args.work_dir = self.root / kind
+                snapshot = rt.create_orchestration_snapshot(self.args)
+                reporter = snapshot / "build_tools/runtime_transition_report.py"
+                if kind == "content":
+                    reporter.chmod(0o644)
+                    reporter.write_text("raise SystemExit(99)\n")
+                elif kind == "archive":
+                    archive = snapshot / "build-tools.tar"
+                    archive.chmod(0o644)
+                    with archive.open("ab") as output:
+                        output.write(b"corrupt")
+                elif kind == "metadata":
+                    metadata = snapshot / "snapshot.json"
+                    metadata.chmod(0o644)
+                    value = json.loads(metadata.read_text())
+                    value["content_sha256"] = "0" * 64
+                    metadata.write_text(json.dumps(value))
+                elif kind in {"symlink", "missing"}:
+                    reporter.parent.chmod(0o755)
+                    reporter.unlink()
+                    if kind == "symlink":
+                        reporter.symlink_to(
+                            source / "build_tools/runtime_transition_report.py"
+                        )
+                elif kind == "extra":
+                    snapshot.chmod(0o755)
+                    (snapshot / "extra.py").write_text("raise SystemExit(99)\n")
+                else:
+                    self.args.therock_ref = "f" * 40
+                with patch.object(rt.subprocess, "call") as execute, self.assertRaises(
+                    rt.PrerequisiteError
+                ):
+                    rt.finish(rt.Transition(self.args, self.plan))
+                execute.assert_not_called()
+                self.assertFalse(self.args.work_dir.exists())
+                self.args.therock_ref = commit
+        self.args.work_dir = self.root / "absent"
+        with self.assertRaises(rt.PrerequisiteError):
+            rt.finish(rt.Transition(self.args, self.plan))
+
+    def test_missing_commit_and_helper_refuse_launch_before_docker(self) -> None:
+        source, commit = tool_source(self.root)
+        self.args.work_dir = self.root / "missing-commit"
+        self.args.therock_ref = "f" * 40
+        with patch.object(rt, "SCRIPT_DIR", source / "build_tools"), patch.object(
+            rt.subprocess, "call"
+        ) as execute:
+            with self.assertRaisesRegex(
+                rt.PrerequisiteError, "requested source commit"
+            ):
+                rt.launch_container(self.args, self.plan)
+            execute.assert_not_called()
+        for index, name in enumerate(sorted(rt.snapshot.ORCHESTRATION_HELPERS)):
+            with self.subTest(helper=name):
+                self.args.work_dir = self.root / f"missing-helper-{index}"
+                git(source, "rm", name)
+                git(source, "commit", "-m", "Remove helper")
+                self.args.therock_ref = git(source, "rev-parse", "HEAD")
+                self.args.therock_checkout = source
+                with patch.object(
+                    rt.subprocess, "call"
+                ) as execute, self.assertRaisesRegex(
+                    rt.PrerequisiteError, "required orchestration helpers"
+                ):
+                    rt.launch_container(self.args, self.plan)
+                execute.assert_not_called()
+                git(source, "reset", "--hard", commit)
+
+    def test_snapshot_archive_rejects_unsafe_entries_and_bounds(self) -> None:
+        archive_path = self.root / "unsafe.tar"
+        for name, kind in (
+            ("build_tools/../../escape", tarfile.REGTYPE),
+            ("/build_tools/escape", tarfile.REGTYPE),
+            ("build_tools/link", tarfile.SYMTYPE),
+            ("build_tools/link", tarfile.LNKTYPE),
+            ("build_tools/fifo", tarfile.FIFOTYPE),
+            ("other/file", tarfile.REGTYPE),
+        ):
+            with self.subTest(name=name, kind=kind):
+                with tarfile.open(
+                    archive_path, "w", pax_headers={"comment": self.args.therock_ref}
+                ) as archive:
+                    member = tarfile.TarInfo(name)
+                    member.type = kind
+                    member.linkname = (
+                        "../../escape"
+                        if kind in {tarfile.SYMTYPE, tarfile.LNKTYPE}
+                        else ""
+                    )
+                    archive.addfile(member, io.BytesIO())
+                with self.assertRaisesRegex(rt.snapshot.SnapshotError, "Unsafe"):
+                    rt.snapshot.orchestration_files(
+                        archive_path, self.args.therock_ref, self.root / "extract"
+                    )
+        self.assertFalse((self.root / "escape").exists())
+        source, commit = tool_source(self.root)
+        self.args.therock_checkout, self.args.therock_ref = source, commit
+        snapshot = rt.create_orchestration_snapshot(self.args)
+        for limit in ("MAX_ORCHESTRATION_BYTES", "MAX_ORCHESTRATION_ENTRIES"):
+            with self.subTest(limit=limit), patch.object(
+                rt.snapshot, limit, 1
+            ), self.assertRaises(rt.PrerequisiteError):
+                rt.verify_orchestration_snapshot(self.run.work, commit)
+
+    def test_nested_build_environment_and_cargo_configuration_match_jobs(self) -> None:
+        binary = self.root / "bin"
+        binary.mkdir()
+        cmake = binary / "cmake"
+        cmake.write_text(
+            f"#!{sys.executable}\n"
+            "import json,os,subprocess,sys\nfrom pathlib import Path\n"
+            "if '--build' in sys.argv:\n"
+            " subprocess.run([sys.executable, '-c', 'import json,os; print(json.dumps({key:os.environ.get(key) for key in (\"CMAKE_BUILD_PARALLEL_LEVEL\",\"CARGO_BUILD_JOBS\")}))'], check=True)\n"
+            " sys.exit(1)\n"
+            "build = Path(sys.argv[sys.argv.index('-B')+1])\n"
+            "build.mkdir(parents=True)\n"
+            "(build/'CMakeCache.txt').write_text('\\n'.join(argument[2:].split('=')[0]+':BOOL='+argument.split('=',1)[1] for argument in sys.argv if argument.startswith('-DTHEROCK_')))\n"
+        )
+        cmake.chmod(0o755)
+        with patch.object(
+            rt, "SYSTEM_PATH", f"{binary}:{rt.SYSTEM_PATH}"
+        ), patch.object(self.run, "prepare_source", return_value=self.root):
+            self.run.run_profile("baseline")
+        configure = json.loads(
+            (self.run.work / "diagnostics/command-0001.json").read_text()
+        )
+        self.assertIn(
+            f"-DROCM_RUNTIMES_CARGO_JOBS={self.args.jobs}", configure["command"]
+        )
+        for key in (
+            "THEROCK_AMDGPU_FAMILIES",
+            "THEROCK_DIST_AMDGPU_FAMILIES",
+            "THEROCK_TEST_AMDGPU_FAMILIES",
+        ):
+            self.assertIn(f"-D{key}={self.args.gpu_family}", configure["command"])
+        nested = json.loads(
+            (self.run.work / "diagnostics/command-0002.stdout").read_text()
+        )
+        self.assertEqual(
+            nested,
+            {
+                "CMAKE_BUILD_PARALLEL_LEVEL": str(self.args.jobs),
+                "CARGO_BUILD_JOBS": str(self.args.jobs),
+            },
+        )
+        self.assertEqual(
+            self.run.jobs["dist"].observations["baseline"]["status"], "failure"
+        )
+        self.assertNotIn("CMAKE_BUILD_PARALLEL_LEVEL", rt.clean_environment(self.root))
+        self.assertNotIn("CARGO_BUILD_JOBS", rt.clean_environment(self.root))
 
     def test_native_disabled_gtest_projection_matches_default_inventory(self) -> None:
         raw = self.root / "gtest.xml"
