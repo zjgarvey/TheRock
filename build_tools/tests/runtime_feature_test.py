@@ -19,10 +19,10 @@ class RuntimeFeatureTest(unittest.TestCase):
                 'option(THEROCK_ENABLE_ALL "All" ON)\n'
                 'therock_add_feature(BASE GROUP ALL DESCRIPTION "Base")\n'
                 'therock_add_feature(COMPILER GROUP ALL DESCRIPTION "Compiler")\n'
-                "therock_add_feature(ROCM_RUNTIMES DEFAULT OFF REQUIRES BASE COMPILER "
+                "therock_add_feature(ROCDDI_RUNTIMES DEFAULT OFF REQUIRES BASE COMPILER "
                 'DESCRIPTION "Runtime tests")\ntherock_finalize_features()\n'
                 'file(WRITE "${CMAKE_BINARY_DIR}/selected.txt" '
-                '"${THEROCK_ENABLE_ROCM_RUNTIMES};${THEROCK_ENABLE_COMPILER};${THEROCK_ENABLE_BASE}")\n'
+                '"${THEROCK_ENABLE_ROCDDI_RUNTIMES};${THEROCK_ENABLE_COMPILER};${THEROCK_ENABLE_BASE}")\n'
             )
             build = source / "build"
             for options, expected in (
@@ -31,7 +31,7 @@ class RuntimeFeatureTest(unittest.TestCase):
                     [
                         "-DTHEROCK_ENABLE_ALL=OFF",
                         "-DTHEROCK_ENABLE_COMPILER=OFF",
-                        "-DTHEROCK_ENABLE_ROCM_RUNTIMES=ON",
+                        "-DTHEROCK_ENABLE_ROCDDI_RUNTIMES=ON",
                     ],
                     "ON;ON;ON",
                 ),

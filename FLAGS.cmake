@@ -16,9 +16,9 @@ include(therock_flag_utils)
 ###############################################################################
 
 therock_declare_flag(
-  NAME REPLACE_ROCR_WITH_RUST_HSA
+  NAME USE_ROCDDI_FOR_HSA_RUNTIME
   DEFAULT_VALUE OFF
-  DESCRIPTION "Use runtimes Rust HSA instead of the ROCr HSA build (requires ROCM_RUNTIMES)"
+  DESCRIPTION "Use rocddi HSA instead of the ROCr HSA build (requires ROCDDI_RUNTIMES)"
 )
 
 # Build flag infrastructure conformance canaries. These are consumed by the

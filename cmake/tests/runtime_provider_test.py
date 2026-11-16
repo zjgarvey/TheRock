@@ -85,8 +85,8 @@ class RuntimeProviderTest(unittest.TestCase):
             str(root),
             "-B",
             str(root / "build"),
-            f"-DTHEROCK_ENABLE_ROCM_RUNTIMES={'ON' if enabled else 'OFF'}",
-            f"-DTHEROCK_FLAG_REPLACE_ROCR_WITH_RUST_HSA={'ON' if replace else 'OFF'}",
+            f"-DTHEROCK_ENABLE_ROCDDI_RUNTIMES={'ON' if enabled else 'OFF'}",
+            f"-DTHEROCK_FLAG_USE_ROCDDI_FOR_HSA_RUNTIME={'ON' if replace else 'OFF'}",
             f"-DTHEROCK_ENABLE_CORE_RUNTIME={'ON' if core else 'OFF'}",
             f"-DTHEROCK_ENABLE_CORE_KFDTESTS={'ON' if kfdtests else 'OFF'}",
         ]

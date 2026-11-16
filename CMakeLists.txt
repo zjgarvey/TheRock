@@ -272,10 +272,10 @@ cmake_dependent_option(THEROCK_ROCWMMA_ENABLE_BENCHMARKS
 
 # Additional manual features that don't map to artifacts
 
-# Development builds can exercise runtimes alongside the selected SDK provider.
-therock_add_feature(ROCM_RUNTIMES
+# Development builds can exercise rocddi runtimes alongside the selected SDK provider.
+therock_add_feature(ROCDDI_RUNTIMES
   DEFAULT OFF
-  DESCRIPTION "Build rocm-systems/runtimes and its host tests"
+  DESCRIPTION "Build rocddi runtimes from rocm-systems/runtimes and their host tests"
   REQUIRES BASE COMPILER
   DISABLE_PLATFORMS windows
 )

@@ -116,12 +116,12 @@ if(THEROCK_ENABLE_CORE_AMDSMI)
 endif(THEROCK_ENABLE_CORE_AMDSMI)
 
 
-if(THEROCK_ENABLE_ROCM_RUNTIMES)
+if(THEROCK_ENABLE_ROCDDI_RUNTIMES)
   if(NOT CMAKE_SYSTEM_NAME STREQUAL "Linux")
     message(FATAL_ERROR "rocm-systems/runtimes currently requires Linux")
   endif()
   if(NOT EXISTS "${THEROCK_ROCM_SYSTEMS_SOURCE_DIR}/runtimes/CMakeLists.txt")
-    message(FATAL_ERROR "THEROCK_ENABLE_ROCM_RUNTIMES requires a rocm-systems source revision containing runtimes/")
+    message(FATAL_ERROR "THEROCK_ENABLE_ROCDDI_RUNTIMES requires a rocm-systems source revision containing runtimes/")
   endif()
   include(therock_runtime_inputs)
   therock_prepare_runtime_inputs(_runtimes_cmake_args _runtimes_state _runtimes_input_depends)
@@ -161,7 +161,7 @@ if(WIN32)
 endif()
 
 if(_therock_enable_hsa_runtime)
-  if(THEROCK_FLAG_REPLACE_ROCR_WITH_RUST_HSA)
+  if(THEROCK_FLAG_USE_ROCDDI_FOR_HSA_RUNTIME)
     # The profiler's SDK headers and kfdtest independently consume the thunk.
     # It is built as a standalone archive, with no ROCr HSA runtime target.
     therock_cmake_subproject_declare(hsakmt
@@ -275,11 +275,11 @@ if(_therock_enable_hsa_runtime)
     lib
     run
   )
-  if(THEROCK_ENABLE_ROCM_RUNTIMES)
+  if(THEROCK_ENABLE_ROCDDI_RUNTIMES)
     list(APPEND _core_runtime_subproject_deps rocm-runtimes)
   endif()
   set(_core_runtime_descriptor artifact-core-runtime.toml)
-  if(THEROCK_FLAG_REPLACE_ROCR_WITH_RUST_HSA)
+  if(THEROCK_FLAG_USE_ROCDDI_FOR_HSA_RUNTIME)
     set(_core_runtime_descriptor artifact-core-runtime-rust.toml)
     list(APPEND _core_runtime_subproject_deps hsakmt)
   endif()
@@ -815,7 +815,7 @@ endif(THEROCK_BUILD_TESTING AND THEROCK_ENABLE_CORE_RUNTIME_TESTS AND _therock_e
 if(THEROCK_BUILD_TESTING AND THEROCK_ENABLE_CORE_KFDTESTS)
 
     set(_hsakmt_build_subdir libhsakmt)
-    if(THEROCK_FLAG_REPLACE_ROCR_WITH_RUST_HSA)
+    if(THEROCK_FLAG_USE_ROCDDI_FOR_HSA_RUNTIME)
       set(_hsakmt_build_subdir "")
     endif()
 
