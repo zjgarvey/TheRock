@@ -549,7 +549,7 @@ feature_name = "CORE_RUNTIME"
 feature_group = "CORE"
 disable_platforms_if_flags_not_set = { windows = "HSA_WINDOWS_SHARED_RUNTIME" }
 test_artifacts = ["core-hiptests", "rocrtst"]  # When building ROCR, also build hip-tests and rocrtst
-source_paths = ["rocr-runtime", "rocminfo", "amdgpu-windows-interop"]
+source_paths = ["rocr-runtime", "runtimes", "rocminfo", "amdgpu-windows-interop"]
 
 [artifacts.wsl-rocdxg]
 artifact_group = "wsl-rocdxg"

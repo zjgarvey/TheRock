@@ -20,6 +20,7 @@
 #
 # A feature is enabled by default unless if the GROUP keyword is specified.
 # In this case, it's default state is dependent on THEROCK_ENABLE_${group}.
+# DEFAULT overrides that initial value before platform restrictions are applied.
 
 function(therock_add_feature feature_name)
   cmake_parse_arguments(PARSE_ARGV 1 ARG
@@ -45,6 +46,10 @@ function(therock_add_feature feature_name)
     if(NOT "${THEROCK_ENABLE_${ARG_GROUP}}")
       set(_default_enabled OFF)
     endif()
+  endif()
+
+  if(DEFINED ARG_DEFAULT)
+    set(_default_enabled "${ARG_DEFAULT}")
   endif()
 
   # Check if current platform is in DISABLE_PLATFORMS list

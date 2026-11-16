@@ -116,6 +116,42 @@ if(THEROCK_ENABLE_CORE_AMDSMI)
 endif(THEROCK_ENABLE_CORE_AMDSMI)
 
 
+if(THEROCK_ENABLE_ROCM_RUNTIMES)
+  if(NOT CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    message(FATAL_ERROR "rocm-systems/runtimes currently requires Linux")
+  endif()
+  if(NOT EXISTS "${THEROCK_ROCM_SYSTEMS_SOURCE_DIR}/runtimes/CMakeLists.txt")
+    message(FATAL_ERROR "THEROCK_ENABLE_ROCM_RUNTIMES requires a rocm-systems source revision containing runtimes/")
+  endif()
+  include(therock_runtime_inputs)
+  therock_prepare_runtime_inputs(_runtimes_cmake_args _runtimes_state _runtimes_input_depends)
+  therock_cmake_subproject_declare(rocm-runtimes
+    DISABLE_AMDGPU_TARGETS
+    NO_MERGE_COMPILE_COMMANDS
+    EXTERNAL_SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/rocm-runtimes"
+    BINARY_DIR "${CMAKE_CURRENT_BINARY_DIR}/rocm-runtimes"
+    FPRINT_SOURCE_DIR "${THEROCK_ROCM_SYSTEMS_SOURCE_DIR}/runtimes"
+    FPRINT_FILE_GLOBS
+      "${CMAKE_CURRENT_SOURCE_DIR}/rocm-runtimes/*"
+      "${THEROCK_SOURCE_DIR}/cmake/therock_runtime_inputs.cmake"
+      "${_runtimes_state}"
+    EXTRA_DEPENDS ${_runtimes_input_depends}
+    COMPILER_TOOLCHAIN "${_system_toolchain}"
+    CMAKE_ARGS
+      "-DROCM_RUNTIMES_SOURCE_DIR=${THEROCK_ROCM_SYSTEMS_SOURCE_DIR}/runtimes"
+      "-DTHEROCK_BUILD_TESTING=${THEROCK_BUILD_TESTING}"
+      ${_runtimes_cmake_args}
+    BUILD_DEPS amd-llvm
+    INSTALL_DESTINATION lib/rocm-runtimes
+  )
+  therock_cmake_subproject_activate(rocm-runtimes)
+  therock_cmake_subproject_build_test(rocm-runtimes
+    COMMAND "${CMAKE_CTEST_COMMAND}" --output-on-failure --no-tests=error -L host
+      --output-junit rocm-runtimes-host-tests.xml
+  )
+
+endif()
+
 set(_therock_enable_hsa_runtime "${THEROCK_ENABLE_CORE_RUNTIME}")
 if(WIN32)
   set(_therock_enable_hsa_runtime OFF)
@@ -201,6 +237,10 @@ if(_therock_enable_hsa_runtime)
     lib
     run
   )
+
+  if(THEROCK_ENABLE_ROCM_RUNTIMES)
+    list(APPEND _core_runtime_subproject_deps rocm-runtimes)
+  endif()
 
   if(THEROCK_FLAG_INCLUDE_HRX)
     ############################################################################

@@ -1154,6 +1154,20 @@ class ExtractSourcePathFromPathTest(unittest.TestCase):
     def test_root_file_returns_none(self):
         self.assertIsNone(BuildTopology.extract_source_path_from_path("CMakeLists.txt"))
 
+    def test_runtimes_tree(self):
+        self.assertEqual(
+            BuildTopology.extract_source_path_from_path("runtimes"), "runtimes"
+        )
+        self.assertEqual(
+            BuildTopology.extract_source_path_from_path(
+                "runtimes/ddi/libhsa/src/lib.rs"
+            ),
+            "runtimes",
+        )
+        self.assertEqual(
+            get_topology().get_artifacts_for_source_path("runtimes"), ["core-runtime"]
+        )
+
 
 class GetArtifactsForSourcePathTest(unittest.TestCase):
     """Tests for artifact lookup by source_path."""

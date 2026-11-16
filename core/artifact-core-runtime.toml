@@ -33,3 +33,14 @@ optional = true
 include = [
   "lib/hrx/share/hrx-cts/**",
 ]
+
+# Optional runtime development payload.
+[components.lib."core/rocm-runtimes/stage"]
+optional = true
+include = ["lib/rocm-runtimes/lib/*.so*"]
+[components.dev."core/rocm-runtimes/stage"]
+optional = true
+include = ["lib/rocm-runtimes/lib/*.a", "lib/rocm-runtimes/lib/*.rsp", "lib/rocm-runtimes/include/**"]
+[components.doc."core/rocm-runtimes/stage"]
+optional = true
+include = ["lib/rocm-runtimes/share/doc/**"]
