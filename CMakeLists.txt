@@ -284,6 +284,9 @@ therock_add_feature(ROCM_RUNTIMES
 therock_finalize_features()
 therock_report_features()
 
+include(therock_runtime_provider)
+therock_select_runtime_providers(THEROCK_HSA_RUNTIME_TARGET THEROCK_HSAKMT_TARGET)
+
 ################################################################################
 # GPU target selection
 #

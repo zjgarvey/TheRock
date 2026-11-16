@@ -15,6 +15,12 @@ include(therock_flag_utils)
 # Flag declarations
 ###############################################################################
 
+therock_declare_flag(
+  NAME REPLACE_ROCR_WITH_RUST_HSA
+  DEFAULT_VALUE OFF
+  DESCRIPTION "Use runtimes Rust HSA instead of the ROCr HSA build (requires ROCM_RUNTIMES)"
+)
+
 # Build flag infrastructure conformance canaries. These are consumed by the
 # unconditional aux-overlay compile check. They deliberately exercise both
 # BOOL values and INTEGER serialization. Do not remove or repurpose them.

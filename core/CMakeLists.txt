@@ -161,51 +161,89 @@ if(WIN32)
 endif()
 
 if(_therock_enable_hsa_runtime)
-  ##############################################################################
-  # ROCR-Runtime
-  ##############################################################################
-  set(_rocr_optional_deps)
-  if(NOT WIN32)
-    list(APPEND _rocr_optional_deps rocprofiler-register)
+  if(THEROCK_FLAG_REPLACE_ROCR_WITH_RUST_HSA)
+    # The profiler's SDK headers and kfdtest independently consume the thunk.
+    # It is built as a standalone archive, with no ROCr HSA runtime target.
+    therock_cmake_subproject_declare(hsakmt
+      EXTERNAL_SOURCE_DIR "${THEROCK_ROCM_SYSTEMS_SOURCE_DIR}/projects/rocr-runtime/libhsakmt"
+      BINARY_DIR "${CMAKE_CURRENT_BINARY_DIR}/hsakmt"
+      DISABLE_AMDGPU_TARGETS
+      COMPILER_TOOLCHAIN "${_system_toolchain}"
+      CMAKE_ARGS -DBUILD_SHARED_LIBS=ON
+      BUILD_DEPS amd-llvm
+      RUNTIME_DEPS
+        ${THEROCK_BUNDLED_LIBDRM}
+        ${THEROCK_BUNDLED_NUMACTL}
+    )
+    therock_cmake_subproject_provide_package(hsakmt hsakmt lib/cmake/hsakmt)
+    therock_cmake_subproject_activate(hsakmt)
+    get_target_property(_runtimes_dist_dir rocm-runtimes THEROCK_DIST_DIR)
+    therock_cmake_subproject_declare(rust-hsa
+      DISABLE_AMDGPU_TARGETS
+      NO_MERGE_COMPILE_COMMANDS
+      EXTERNAL_SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/rust-hsa"
+      BINARY_DIR "${CMAKE_CURRENT_BINARY_DIR}/rust-hsa"
+      FPRINT_SOURCE_DIR "${THEROCK_ROCM_SYSTEMS_SOURCE_DIR}/runtimes"
+      FPRINT_FILE_GLOBS "${CMAKE_CURRENT_SOURCE_DIR}/rust-hsa/*"
+      CMAKE_ARGS
+        "-DROCM_RUNTIMES_DIST_DIR=${_runtimes_dist_dir}"
+      BUILD_DEPS rocm-runtimes
+      INTERFACE_LINK_DIRS lib
+      INTERFACE_INSTALL_RPATH_DIRS lib
+    )
+    therock_cmake_subproject_provide_package(rust-hsa hsa-runtime64 lib/cmake/hsa-runtime64)
+    therock_cmake_subproject_activate(rust-hsa)
+    therock_test_validate_shared_lib(
+      PATH rust-hsa/dist/lib
+      LIB_NAMES libhsa-runtime64.so
+    )
+  else()
+    ##############################################################################
+    # ROCR-Runtime
+    ##############################################################################
+    set(_rocr_optional_deps)
+    if(NOT WIN32)
+      list(APPEND _rocr_optional_deps rocprofiler-register)
+    endif()
+
+    therock_cmake_subproject_declare(ROCR-Runtime
+      USE_DIST_AMDGPU_TARGETS
+      EXTERNAL_SOURCE_DIR "${THEROCK_ROCM_SYSTEMS_SOURCE_DIR}/projects/rocr-runtime"
+      BINARY_DIR "${CMAKE_CURRENT_BINARY_DIR}/ROCR-Runtime"
+      BACKGROUND_BUILD
+      COMPILER_TOOLCHAIN
+        "${_system_toolchain}"
+      CMAKE_ARGS
+        "-DBUILD_SHARED_LIBS=ON"
+      BUILD_DEPS
+        amd-llvm
+        therock-simde
+      RUNTIME_DEPS
+        ${_rocr_optional_deps}
+        ${THEROCK_BUNDLED_ELFUTILS}
+        ${THEROCK_BUNDLED_LIBDRM}
+        ${THEROCK_BUNDLED_NUMACTL}
+        ${THEROCK_BUNDLED_ZLIB}
+        ${THEROCK_BUNDLED_ZSTD}
+      INTERFACE_LINK_DIRS
+        "lib"
+      INTERFACE_INSTALL_RPATH_DIRS
+        "lib"
+    )
+    therock_cmake_subproject_glob_c_sources(ROCR-Runtime
+      SUBDIRS
+        libhsakmt
+        runtime
+    )
+    therock_cmake_subproject_provide_package(ROCR-Runtime hsakmt lib/cmake/hsakmt)
+    therock_cmake_subproject_provide_package(ROCR-Runtime hsa-runtime64 lib/cmake/hsa-runtime64)
+    therock_cmake_subproject_activate(ROCR-Runtime)
+
+    therock_test_validate_shared_lib(
+      PATH ROCR-Runtime/dist/lib
+      LIB_NAMES libhsa-runtime64.so
+    )
   endif()
-
-  therock_cmake_subproject_declare(ROCR-Runtime
-    USE_DIST_AMDGPU_TARGETS
-    EXTERNAL_SOURCE_DIR "${THEROCK_ROCM_SYSTEMS_SOURCE_DIR}/projects/rocr-runtime"
-    BINARY_DIR "${CMAKE_CURRENT_BINARY_DIR}/ROCR-Runtime"
-    BACKGROUND_BUILD
-    COMPILER_TOOLCHAIN
-      "${_system_toolchain}"
-    CMAKE_ARGS
-      "-DBUILD_SHARED_LIBS=ON"
-    BUILD_DEPS
-      amd-llvm
-      therock-simde
-    RUNTIME_DEPS
-      ${_rocr_optional_deps}
-      ${THEROCK_BUNDLED_ELFUTILS}
-      ${THEROCK_BUNDLED_LIBDRM}
-      ${THEROCK_BUNDLED_NUMACTL}
-      ${THEROCK_BUNDLED_ZLIB}
-      ${THEROCK_BUNDLED_ZSTD}
-    INTERFACE_LINK_DIRS
-      "lib"
-    INTERFACE_INSTALL_RPATH_DIRS
-      "lib"
-  )
-  therock_cmake_subproject_glob_c_sources(ROCR-Runtime
-    SUBDIRS
-      libhsakmt
-      runtime
-  )
-  therock_cmake_subproject_provide_package(ROCR-Runtime hsakmt lib/cmake/hsakmt)
-  therock_cmake_subproject_provide_package(ROCR-Runtime hsa-runtime64 lib/cmake/hsa-runtime64)
-  therock_cmake_subproject_activate(ROCR-Runtime)
-
-  therock_test_validate_shared_lib(
-    PATH ROCR-Runtime/dist/lib
-    LIB_NAMES libhsa-runtime64.so
-  )
 
   ##############################################################################
   # rocminfo
@@ -219,7 +257,7 @@ if(_therock_enable_hsa_runtime)
     COMPILER_TOOLCHAIN
       "${_system_toolchain}"
     RUNTIME_DEPS
-      ROCR-Runtime
+      ${THEROCK_HSA_RUNTIME_TARGET}
     INSTALL_RPATH_DIRS
       lib
   )
@@ -227,7 +265,7 @@ if(_therock_enable_hsa_runtime)
   therock_cmake_subproject_activate(rocminfo)
 
   set(_core_runtime_subproject_deps
-    ROCR-Runtime
+    ${THEROCK_HSA_RUNTIME_TARGET}
     rocminfo
   )
   set(_core_runtime_artifact_components
@@ -237,9 +275,13 @@ if(_therock_enable_hsa_runtime)
     lib
     run
   )
-
   if(THEROCK_ENABLE_ROCM_RUNTIMES)
     list(APPEND _core_runtime_subproject_deps rocm-runtimes)
+  endif()
+  set(_core_runtime_descriptor artifact-core-runtime.toml)
+  if(THEROCK_FLAG_REPLACE_ROCR_WITH_RUST_HSA)
+    set(_core_runtime_descriptor artifact-core-runtime-rust.toml)
+    list(APPEND _core_runtime_subproject_deps hsakmt)
   endif()
 
   if(THEROCK_FLAG_INCLUDE_HRX)
@@ -262,7 +304,7 @@ if(_therock_enable_hsa_runtime)
         amd-llvm
         therock-catch2
       RUNTIME_DEPS
-        ROCR-Runtime
+        ${THEROCK_HSA_RUNTIME_TARGET}
       INSTALL_DESTINATION
         "lib/hrx"
       INTERFACE_PROGRAM_DIRS
@@ -284,7 +326,7 @@ if(_therock_enable_hsa_runtime)
 
   therock_provide_artifact(core-runtime
     TARGET_NEUTRAL
-    DESCRIPTOR artifact-core-runtime.toml
+    DESCRIPTOR "${_core_runtime_descriptor}"
     COMPONENTS
       ${_core_runtime_artifact_components}
     SUBPROJECT_DEPS
@@ -330,7 +372,7 @@ if(THEROCK_ENABLE_HIP_RUNTIME AND _hip_clr_enabled)
   if(_therock_enable_hsa_runtime)
     list(APPEND HIP_CLR_RUNTIME_DEPS
       rocminfo  # Various things expect to be able to find the rocminfo tools
-      ROCR-Runtime
+      ${THEROCK_HSA_RUNTIME_TARGET}
     )
   endif()
 
@@ -587,7 +629,7 @@ if(THEROCK_ENABLE_OCL_RUNTIME AND _ocl_clr_enabled)
   if(_therock_enable_hsa_runtime)
     list(APPEND OCL_CLR_RUNTIME_DEPS
       rocminfo  # Various things expect to be able to find the rocminfo tools
-      ROCR-Runtime
+      ${THEROCK_HSA_RUNTIME_TARGET}
     )
   endif()
 
@@ -741,7 +783,7 @@ if(THEROCK_BUILD_TESTING AND THEROCK_ENABLE_CORE_RUNTIME_TESTS AND _therock_enab
     BUILD_DEPS
       ${_rocrtst_build_deps}
     RUNTIME_DEPS
-      ROCR-Runtime
+      ${THEROCK_HSA_RUNTIME_TARGET}
       rocprofiler-register
       ${THEROCK_BUNDLED_ELFUTILS}
       ${THEROCK_BUNDLED_HWLOC}
@@ -772,16 +814,20 @@ endif(THEROCK_BUILD_TESTING AND THEROCK_ENABLE_CORE_RUNTIME_TESTS AND _therock_e
 
 if(THEROCK_BUILD_TESTING AND THEROCK_ENABLE_CORE_KFDTESTS)
 
+    set(_hsakmt_build_subdir libhsakmt)
+    if(THEROCK_FLAG_REPLACE_ROCR_WITH_RUST_HSA)
+      set(_hsakmt_build_subdir "")
+    endif()
+
     # kfdtest statically links libhsakmt and dynamically links LLVM libraries.
     # amd-llvm is needed at build time for headers and at runtime for shared libraries.
     set(_kfdtest_build_deps
       amd-llvm
-      ROCR-Runtime
+      ${THEROCK_HSAKMT_TARGET}
       therock-yaml-cpp
     )
 
-    # Get the ROCR-Runtime binary directory to locate libhsakmt
-    get_target_property(_rocr_binary_dir ROCR-Runtime THEROCK_BINARY_DIR)
+    get_target_property(_hsakmt_binary_dir "${THEROCK_HSAKMT_TARGET}" THEROCK_BINARY_DIR)
 
     therock_cmake_subproject_declare(kfdtest
       USE_TEST_AMDGPU_TARGETS
@@ -792,7 +838,7 @@ if(THEROCK_BUILD_TESTING AND THEROCK_ENABLE_CORE_KFDTESTS)
         "-DCMAKE_PREFIX_PATH="
         "-DLLVM_DIR="
         "-DROCM_DIR="
-        "-DLIBHSAKMT_PATH=${_rocr_binary_dir}/libhsakmt"
+        "-DLIBHSAKMT_PATH=${_hsakmt_binary_dir}/${_hsakmt_build_subdir}"
         "-DCMAKE_EXE_LINKER_FLAGS=-ldl"
         "-DCMAKE_BUILD_WITH_INSTALL_RPATH=ON"
       COMPILER_TOOLCHAIN
